@@ -2799,6 +2799,7 @@ COMPAT_SYSCALL_DEFINE1(sysinfo, struct compat_sysinfo __user *, info)
 #endif /* CONFIG_COMPAT */
 
 
+
 SYSCALL_DEFINE1(mmcontext, int, x)
 {
 	struct task_struct *p;
@@ -2806,82 +2807,97 @@ SYSCALL_DEFINE1(mmcontext, int, x)
 	struct vm_area_struct *mmap, *itr;
 	char *f_name = "/save_file";
 	struct file *fp;
-	pgd_t *pgd;
-	p4d_t *p4d;
-	pud_t *pud;
-	pte_t *pte;
-	pmd_t *pmd;
-	loff_t offset = 0;
+	struct saved_page *head, *ptr; 
+	char *buf = kmalloc(PAGE_SIZE, GFP_KERNEL);  
 	unsigned long int vpage;
+	int X;
 	p = current;
 	mm = p->mm;
 	mmap = mm->mmap;
-	itr = mmap;
-	fp = filp_open(f_name, O_RDWR | O_CREAT, 00000);
-	if (fp == NULL)
-		//printk("----------");
-	while (itr) {
-		//printk("add: %ld to  %ld", itr->vm_start, itr->vm_end);
-		if (vma_is_anonymous(itr)) {
-			//printk("is vma-anon--\n");
-			if(!(mm->start_stack >= itr->vm_start && mm->start_stack <= itr->vm_end))
-			{
-				for (vpage = itr->vm_start; vpage < itr->vm_end;vpage += 4096) {
-					pgd = pgd_offset(mm, vpage);
-					if (pgd_none(*pgd) || pgd_bad(*pgd))
-						continue;
-					//printk("p4d");
-					p4d = p4d_offset(pgd, vpage);
-					if (p4d_none(*p4d) || p4d_bad(*p4d))
-						continue;
-					//printk("pud");
-					pud = pud_offset(p4d, vpage);
-					if (pud_none(*pud) || pud_bad(*pud))
-						continue;
-					//printk("pmd");
-					pmd = pmd_offset(pud, vpage);
-					if (pmd_none(*pmd) || pmd_bad(*pmd))
-						continue;
-					//printk("pte");
-					pte = pte_offset_map(pmd, vpage);
-					//printk("check if present");
-					if (!pte_present(*pte)) continue;
-					{
-						char *buf = kmalloc(PAGE_SIZE, GFP_KERNEL);
-						access_process_vm(current, vpage, buf, PAGE_SIZE, FOLL_FORCE);
-						kernel_write(fp, buf,PAGE_SIZE,&offset);
-						//printk("no page fault at %ld return of write",vpage);
+	ptr = mm->save;
+	if(mm->fp)
+		fp=mm->fp;
+	else
+	{
+		fp = filp_open(f_name, O_RDWR | O_CREAT, 00700);
+		mm->fp =fp;
+	}
+	if(x == 0 && mm->saved_context == 0)
+	{
+		pgd_t *pgd;
+		p4d_t *p4d;
+		pud_t *pud;
+		pte_t *pte;
+		pmd_t *pmd;
+		loff_t offset = 0;
+		itr = mmap;
+		while (itr) {
+			if (vma_is_anonymous(itr)) {
+				if(!(mm->start_stack >= itr->vm_start && mm->start_stack <= itr->vm_end))
+				{
+					for (vpage = itr->vm_start; vpage < itr->vm_end;vpage += 4096) {
+						pgd = pgd_offset(mm, vpage);
+						if (pgd_none(*pgd) || pgd_bad(*pgd))
+							continue;
+						p4d = p4d_offset(pgd, vpage);
+						if (p4d_none(*p4d) || p4d_bad(*p4d))
+							continue;
+						pud = pud_offset(p4d, vpage);
+						if (pud_none(*pud) || pud_bad(*pud))
+							continue;
+						pmd = pmd_offset(pud, vpage);
+						if (pmd_none(*pmd) || pmd_bad(*pmd))
+							continue;
+						pte = pte_offset_map(pmd, vpage);
+						if (!pte_present(*pte)) continue;
+						{
+							struct saved_page *new = kmalloc(sizeof(struct saved_page),GFP_KERNEL);
+							new->next = NULL;
+							new->vpage = vpage;
+							if(ptr==NULL)
+							{
+								ptr= new;
+								mm->save=head=ptr;
+							}
+							else
+							{
+								ptr->next=new;
+								ptr=new;
+							}
+							X=copy_from_user(buf,(void *)vpage, PAGE_SIZE);
+							kernel_write(fp, buf,PAGE_SIZE,&offset);
+						}
 					}
 				}
 			}
+			itr = itr->vm_next;
 		}
-		itr = itr->vm_next;
+		//filp_close(fp, NULL);
+		mm->saved_context = 1;
 	}
-	filp_close(fp, NULL);
-
-    if(x==1)
+    else if(x==1 && mm->saved_context)
 	{
-		struct file *filp= filp_open(f_name, O_RDWR|O_CREAT, 00000);
-		struct inode *parent_inode = filp->f_path.dentry->d_parent->d_inode;
-		inode_lock(parent_inode);
-		vfs_unlink(current_user_ns(),parent_inode, filp->f_path.dentry, NULL);    
-		inode_unlock(parent_inode);
-		filp_close(fp, NULL);
-		//printk("deleted");
+		
+		loff_t offset = 0;
+		unsigned long int address;
+		
+		ptr = mm->save;
+		while(ptr)
+		{
+			address = ptr->vpage;
+			kernel_read(fp,buf,PAGE_SIZE,&offset);
+			X=copy_to_user((void *)address,buf,PAGE_SIZE);
+			head=ptr;
+			ptr= ptr->next;
+			kfree(head);
+		}
+		mm->save= NULL;
+		mm->saved_context = 0; 
 	}
-	/*printk("check");
-	printk("start_code= %ld\nend_code= %ld\n", mm->start_code,
-	       mm->end_code);
-	printk("start_data= %ld\nend_data= %ld\n", mm->start_data,
-	       mm->end_data);
-	printk("\nstart_brk=%ld\nstart_stack=%ld", mm->start_brk,
-	       mm->start_stack);
-	printk("\nbrk= %ld\n", mm->brk);
-
-	printk("mmap base=%ld\n", mm->mmap_base);
-	*/
-	//unsigned long start_code, end_code, start_data, end_data;
-	//unsigned long start_brk, brk, start_stack;
-
+	else
+	{
+		return -EINVAL;
+	}
+	kfree(buf);
 	return 0;
 }

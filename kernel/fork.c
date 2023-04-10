@@ -1113,6 +1113,8 @@ static struct mm_struct *mm_init(struct mm_struct *mm, struct task_struct *p,
 	struct user_namespace *user_ns)
 {
 	mm->mmap = NULL;
+	mm->saved_context = 0;
+	mm->fp =NULL;
 	mm->mm_rb = RB_ROOT;
 	mm->vmacache_seqnum = 0;
 	atomic_set(&mm->mm_users, 1);

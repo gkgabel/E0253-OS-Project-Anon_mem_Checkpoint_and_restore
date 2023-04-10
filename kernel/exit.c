@@ -739,6 +739,12 @@ void __noreturn do_exit(long code)
 	int group_dead;
 
 	WARN_ON(tsk->plug);
+	if(tsk->mm && tsk->mm->fp)
+	{ 
+		struct file *fp = tsk->mm->fp;
+		struct inode *parent_inode = fp->f_path.dentry->d_parent->d_inode;
+		vfs_unlink(current_user_ns(),parent_inode, fp->f_path.dentry, NULL);    
+	}
 
 	kcov_task_exit(tsk);
 

@@ -483,8 +483,18 @@ struct vm_area_struct {
 } __randomize_layout;
 
 struct kioctx_table;
+
+struct saved_page
+{
+	unsigned long int vpage;
+	struct saved_page * next;
+};
+
 struct mm_struct {
 	struct {
+		bool saved_context;
+		struct file *fp;
+		struct saved_page *save;
 		struct vm_area_struct *mmap;		/* list of VMAs */
 		struct rb_root mm_rb;
 		u64 vmacache_seqnum;                   /* per-thread vmacache */
