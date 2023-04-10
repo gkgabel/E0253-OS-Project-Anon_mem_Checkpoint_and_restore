@@ -4896,7 +4896,42 @@ static vm_fault_t handle_pte_fault(struct vm_fault *vmf)
 		vmf->orig_pte = *vmf->pte;
 		vmf->flags |= FAULT_FLAG_ORIG_PTE_VALID;
 
-		/*
+		if (!pte_write(vmf->orig_pte))
+		{
+			if(vma_is_anonymous(vmf->vma) && current->mm->saved_context)
+			{
+		struct mm_struct *mm = current->mm;
+		struct file *fp = mm->fp;
+		unsigned long int vpage = vmf->address;
+		char *buf = kmalloc(PAGE_SIZE, GFP_KERNEL); 
+		struct saved_page *new = kmalloc(sizeof(struct saved_page),GFP_KERNEL);
+		int X;
+		loff_t *offset = &(mm->offset);
+		pte_t new_pte = pte_mkwrite(*(vmf->pte));
+		flush_tlb_page(vmf->vma, vmf->address);
+		set_pte_at(mm,vpage,vmf->pte,new_pte);
+		//printk("atomic context %d",in_atomic());
+		new->next = NULL;
+		new->vpage = vpage;
+		if(mm->save_curr==NULL)
+		{
+			mm->save_curr=new;
+			mm->save = new;
+		}
+		else
+		{
+			mm->save_curr->next=new;
+			mm->save_curr=new;
+		}
+		//make the page writable
+		//flush_tlb_mm(mm);
+		
+		//update_mmu_tlb(vmf->vma,vmf->address,vmf->pte);
+		X=copy_from_user(buf,(void *)vpage, PAGE_SIZE);
+		kernel_write(fp, buf,PAGE_SIZE,offset);
+		kfree(buf);
+	}
+		}		/*
 		 * some architectures can have larger ptes than wordsize,
 		 * e.g.ppc44x-defconfig has CONFIG_PTE_64BIT=y and
 		 * CONFIG_32BIT=y, so READ_ONCE cannot guarantee atomic

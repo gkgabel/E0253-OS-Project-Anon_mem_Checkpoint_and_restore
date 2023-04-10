@@ -494,7 +494,9 @@ struct mm_struct {
 	struct {
 		bool saved_context;
 		struct file *fp;
+		struct saved_page *save_curr;
 		struct saved_page *save;
+		loff_t offset;
 		struct vm_area_struct *mmap;		/* list of VMAs */
 		struct rb_root mm_rb;
 		u64 vmacache_seqnum;                   /* per-thread vmacache */

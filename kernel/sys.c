@@ -43,7 +43,7 @@
 #include <linux/version.h>
 #include <linux/ctype.h>
 #include <linux/syscall_user_dispatch.h>
-
+#include <asm/tlbflush.h>
 #include <linux/compat.h>
 #include <linux/syscalls.h>
 #include <linux/kprobes.h>
@@ -2822,6 +2822,7 @@ SYSCALL_DEFINE1(mmcontext, int, x)
 		fp = filp_open(f_name, O_RDWR | O_CREAT, 00700);
 		mm->fp =fp;
 	}
+	//printk("atomic context %d",in_atomic());
 	if(x == 0 && mm->saved_context == 0)
 	{
 		pgd_t *pgd;
@@ -2829,8 +2830,10 @@ SYSCALL_DEFINE1(mmcontext, int, x)
 		pud_t *pud;
 		pte_t *pte;
 		pmd_t *pmd;
-		loff_t offset = 0;
+		//loff_t offset = 0;
 		itr = mmap;
+		mm->save_curr=NULL;
+		mm->offset = 0;
 		while (itr) {
 			if (vma_is_anonymous(itr)) {
 				if(!(mm->start_stack >= itr->vm_start && mm->start_stack <= itr->vm_end))
@@ -2851,7 +2854,14 @@ SYSCALL_DEFINE1(mmcontext, int, x)
 						pte = pte_offset_map(pmd, vpage);
 						if (!pte_present(*pte)) continue;
 						{
-							struct saved_page *new = kmalloc(sizeof(struct saved_page),GFP_KERNEL);
+							
+							pte_t new_pte = pte_wrprotect(*pte);
+							flush_tlb_page(itr, vpage);
+							set_pte_at(mm,vpage,pte,new_pte);
+							pte = pte_offset_map(pmd, vpage);
+							
+							//update_mmu_tlb(itr,vpage,pte);//update tlb
+							/*struct saved_page *new = kmalloc(sizeof(struct saved_page),GFP_KERNEL);
 							new->next = NULL;
 							new->vpage = vpage;
 							if(ptr==NULL)
@@ -2865,14 +2875,14 @@ SYSCALL_DEFINE1(mmcontext, int, x)
 								ptr=new;
 							}
 							X=copy_from_user(buf,(void *)vpage, PAGE_SIZE);
-							kernel_write(fp, buf,PAGE_SIZE,&offset);
+							kernel_write(fp, buf,PAGE_SIZE,&offset);*/
 						}
 					}
 				}
 			}
 			itr = itr->vm_next;
 		}
-		//filp_close(fp, NULL);
+		//flush_tlb_mm(mm);
 		mm->saved_context = 1;
 	}
     else if(x==1 && mm->saved_context)
